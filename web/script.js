@@ -8,12 +8,149 @@ const container = svg.append("g");
 const tooltip = d3.select("body").append("div")
 	.attr("class", "tooltip");
 
+// Info panel elements
+const infoPanel = d3.select("#info-panel");
+const panelTitle = d3.select("#panel-title");
+const panelContent = d3.select("#panel-content");
+
 const color = d3.scaleOrdinal(d3.schemePastel2);
 
 const simulation = d3.forceSimulation()
 	.force("link", d3.forceLink().id(d => d.id))
 	.force("charge", d3.forceManyBody().strength(-300))
 	.force("center", d3.forceCenter(width / 2, height / 2));
+
+// Helper functions for info panel
+function closeInfoPanel() {
+	infoPanel.classed("visible", false);
+}
+
+function showNodeInfo(d, allData) {
+	const login = d.id;
+	const group = d.group || 0;
+	
+	// Count evaluations given and received
+	let evalsGiven = 0;
+	let evalsReceived = 0;
+	let connections = 0;
+	let firstEval = null;
+	let lastEval = null;
+	
+	allData.links.forEach(link => {
+		const source = link.source.id || link.source;
+		const target = link.target.id || link.target;
+		if (source === login || target === login) {
+			connections++;
+			if (source === login) {
+				evalsGiven += link.value;
+			} else {
+				evalsReceived += link.value;
+			}
+			// Track dates
+			if (link.first_eval) {
+				if (!firstEval || link.first_eval < firstEval) firstEval = link.first_eval;
+			}
+			if (link.last_eval) {
+				if (!lastEval || link.last_eval > lastEval) lastEval = link.last_eval;
+			}
+		}
+	});
+	
+	panelTitle.text(login);
+	panelContent.html(`
+		<div class="info-section">
+			<div class="info-label">Cluster</div>
+			<div class="info-value">Group ${group}</div>
+		</div>
+		<div class="stats-grid">
+			<div class="stat-box">
+				<div class="stat-number">${evalsGiven}</div>
+				<div class="stat-label">Given</div>
+			</div>
+			<div class="stat-box">
+				<div class="stat-number">${evalsReceived}</div>
+				<div class="stat-label">Received</div>
+			</div>
+			<div class="stat-box">
+				<div class="stat-number">${connections}</div>
+				<div class="stat-label">Connections</div>
+			</div>
+		</div>
+		${firstEval ? `
+		<div class="info-section" style="margin-top: 15px;">
+			<div class="info-label">First Evaluation</div>
+			<div class="info-value">${firstEval}</div>
+		</div>
+		` : ''}
+		${lastEval ? `
+		<div class="info-section">
+			<div class="info-label">Last Evaluation</div>
+			<div class="info-value">${lastEval}</div>
+		</div>
+		` : ''}
+		<div class="info-section" style="margin-top: 15px;">
+			<div class="info-value">
+				<a href="https://profile.intra.42.fr/users/${login}" target="_blank">
+					View 42 Intra Profile
+				</a>
+			</div>
+		</div>
+	`);
+	infoPanel.classed("visible", true);
+}
+
+function showLinkInfo(d) {
+	const source = d.source.id || d.source;
+	const target = d.target.id || d.target;
+	const value = d.value;
+	const firstEval = d.first_eval || 'N/A';
+	const lastEval = d.last_eval || 'N/A';
+	
+	panelTitle.text("Evaluation Link");
+	panelContent.html(`
+		<div class="info-section">
+			<div class="info-label">From</div>
+			<div class="info-value">
+				<a href="https://profile.intra.42.fr/users/${source}" target="_blank">${source}</a>
+			</div>
+		</div>
+		<div class="info-section">
+			<div class="info-label">To</div>
+			<div class="info-value">
+				<a href="https://profile.intra.42.fr/users/${target}" target="_blank">${target}</a>
+			</div>
+		</div>
+		<div class="stats-grid">
+			<div class="stat-box">
+				<div class="stat-number">${value}</div>
+				<div class="stat-label">Evaluations</div>
+			</div>
+		</div>
+		${firstEval !== 'N/A' ? `
+		<div class="info-section" style="margin-top: 15px;">
+			<div class="info-label">First Evaluation</div>
+			<div class="info-value">${firstEval}</div>
+		</div>
+		` : ''}
+		${lastEval !== 'N/A' ? `
+		<div class="info-section">
+			<div class="info-label">Last Evaluation</div>
+			<div class="info-value">${lastEval}</div>
+		</div>
+		` : ''}
+	`);
+	infoPanel.classed("visible", true);
+}
+
+// Close panel when clicking on SVG background
+svg.on("click", function(event) {
+	if (event.target === svg.node()) {
+		closeInfoPanel();
+	}
+});
+
+// Make closeInfoPanel available globally
+window.closeInfoPanel = closeInfoPanel;
 
 d3.json("./data.json").then(function(data) {
 	const link = container.append("g")
@@ -35,6 +172,10 @@ d3.json("./data.json").then(function(data) {
 			tooltip.transition()
 				.duration(500)
 				.style("opacity", 0);
+		})
+		.on("click", function(event, d) {
+			event.stopPropagation();
+			showLinkInfo(d);
 		});
 
 	const node = container.append("g")
@@ -59,7 +200,8 @@ d3.json("./data.json").then(function(data) {
 			d3.select(this).select(".label").style("visibility", "hidden");
 		})
 		.on("click", function(event, d) {
-			window.open(`https://profile.intra.42.fr/users/${d.id}`, '_blank');
+			event.stopPropagation();
+			showNodeInfo(d, data);
 		});
 
 	node.append("circle")
