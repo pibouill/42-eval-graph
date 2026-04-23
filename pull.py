@@ -322,11 +322,26 @@ Examples:
     parser.add_argument('--cohort', dest='cohort_date', help='Cohort start date (YYYY-MM-DD)')
     parser.add_argument('--config', action='store_true', help='Use date_range from config.yml')
     parser.add_argument('--sample', action='store_true', help='Generate sample data (no API)')
+    parser.add_argument('--force', '-f', action='store_true', help='Force refresh (ignore cache)')
 
     parser.add_argument('--campus', type=int, default=56, help='Campus ID (default: 56)')
     parser.add_argument('--cursus', type=int, default=21, help='Cursus ID (default: 21)')
 
     args = parser.parse_args()
+
+    # Check for existing data (cache)
+    data_file = 'web/data.json'
+    if os.path.exists(data_file) and not args.force:
+        # Get file modification time
+        mtime = os.path.getmtime(data_file)
+        import time as time_module
+        age_hours = (time_module.time() - mtime) / 3600
+        
+        if age_hours < 24:
+            print(f"Found existing data.json ({age_hours:.1f} hours old)")
+            print("Use --force to refresh, or delete data.json manually")
+            print("Exiting...")
+            sys.exit(0)
 
     # Validate date formats
     if args.from_date:
