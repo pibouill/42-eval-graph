@@ -125,7 +125,7 @@ def get_date_range(from_date=None, to_date=None, cohort_date=None, use_config=Fa
 
 def fetch_evaluations(from_date, to_date=None, cohort_date=None, campus_id=56, cursus_id=21):
     """Fetch evaluations from 42 API."""
-    date_range = from_date
+    # Build proper date range (must be comma-separated)
     if to_date:
         date_range = f"{from_date},{to_date}"
     elif cohort_date:
@@ -140,6 +140,11 @@ def fetch_evaluations(from_date, to_date=None, cohort_date=None, campus_id=56, c
         from_date_obj = datetime.strptime(cohort_date, "%Y-%m-%d")
         next_day = from_date_obj + timedelta(days=1)
         date_range = f"{cohort_date},{next_day.strftime('%Y-%m-%d')}"
+    else:
+        # No end date - use today as end
+        today = datetime.now().strftime("%Y-%m-%d")
+        date_range = f"{from_date},{today}"
+        print(f"Using date range: {date_range}")
 
     params = {
         'filter[campus_id]': campus_id,
