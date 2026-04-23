@@ -150,6 +150,15 @@ svg {
 	text-decoration: underline;
 }
 
+#info-panel .avatar {
+	width: 80px;
+	height: 80px;
+	border-radius: 50%;
+	margin: 0 auto 15px;
+	display: block;
+	border: 3px solid #eee;
+}
+
 #info-panel .stats-grid {
 	display: grid;
 	grid-template-columns: 1fr 1fr;

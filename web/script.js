@@ -89,10 +89,9 @@ function showNodeInfo(d, allData) {
 	
 	panelTitle.text(login);
 	panelContent.html(`
-		<div class="info-section">
-			<div class="info-label">Cluster</div>
-			<div class="info-value">Group ${group}</div>
-		</div>
+		<img class="avatar" src="https://cdn.intra.42.fr/images/simplon/paris/${login}.png" 
+		     onerror="this.src='https://profile.intra.42.fr/users/${login}/image'" 
+		     alt="${login}"/>
 		<div class="stats-grid">
 			<div class="stat-box">
 				<div class="stat-number">${evalsGiven}</div>
@@ -108,7 +107,7 @@ function showNodeInfo(d, allData) {
 			</div>
 		</div>
 		${firstEval ? `
-		<div class="info-section" style="margin-top: 15px;">
+		<div class="info-section">
 			<div class="info-label">First Evaluation</div>
 			<div class="info-value">${firstEval}</div>
 		</div>
@@ -119,7 +118,7 @@ function showNodeInfo(d, allData) {
 			<div class="info-value">${lastEval}</div>
 		</div>
 		` : ''}
-		<div class="info-section" style="margin-top: 15px;">
+		<div class="info-section">
 			<div class="info-value">
 				<a href="https://profile.intra.42.fr/users/${login}" target="_blank">
 					View 42 Intra Profile
