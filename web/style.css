@@ -58,6 +58,18 @@ svg {
 	opacity: 0;
 }
 
+#tooltip {
+	position: fixed;
+	bottom: 20px;
+	left: 20px;
+	z-index: 999;
+}
+
+.tooltip.draggable {
+	cursor: move;
+	pointer-events: auto;
+}
+
 .label {
 	fill: #555;
 	font-size: 12px;

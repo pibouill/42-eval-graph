@@ -6,7 +6,8 @@ const svg = d3.select("svg"),
 const container = svg.append("g");
 
 const tooltip = d3.select("body").append("div")
-	.attr("class", "tooltip");
+	.attr("class", "tooltip")
+	.attr("id", "tooltip");
 
 // Info panel elements
 const infoPanel = d3.select("#info-panel");
