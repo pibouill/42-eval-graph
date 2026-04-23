@@ -114,11 +114,13 @@ def get_date_range(from_date=None, to_date=None, cohort_date=None, use_config=Fa
 
     # Detect school year boundary (September)
     if month >= 9:  # Fall semester
-        return f"{year}-09-01", None
+        start = f"{year}-09-01"
     elif month >= 1:  # Spring semester
-        return f"{year}-01-01", None
+        start = f"{year}-01-01"
     else:
-        return f"{year}-09-01", None
+        start = f"{year}-09-01"
+    
+    return start, None
 
 
 def fetch_evaluations(from_date, to_date=None, cohort_date=None, campus_id=56, cursus_id=21):
@@ -151,8 +153,15 @@ def fetch_evaluations(from_date, to_date=None, cohort_date=None, campus_id=56, c
         res = ic.pages_threaded('scale_teams', params=params)
         return res
     except Exception as e:
-        print(f"Error fetching data from API: {e}")
-        print("Check your internet connection and API credentials")
+        error_msg = str(e)
+        if '401' in error_msg or 'Unauthorized' in error_msg:
+            print("Error: Invalid API credentials")
+            print("Check your client/secret in config.yml")
+        elif '403' in error_msg or 'Forbidden' in error_msg:
+            print("Error: API access denied")
+            print("Check your credentials have the right scopes")
+        else:
+            print(f"Error fetching from API: {error_msg}")
         return []
 
 
@@ -356,10 +365,10 @@ Examples:
 
     if not any([from_date, to_date, cohort_date, use_config]):
         # Auto-detect current semester
-        from_date = get_date_range()
+        from_date, to_date = get_date_range()
         print(f"Auto-detected date range: {from_date}")
 
-    if args.cohort:
+    if cohort_date:
         print(f"Processing cohort: {cohort_date}")
 
     # Fetch data
