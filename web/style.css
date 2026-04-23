@@ -58,18 +58,6 @@ svg {
 	opacity: 0;
 }
 
-#tooltip {
-	position: fixed;
-	bottom: 20px;
-	left: 20px;
-	z-index: 999;
-}
-
-.tooltip.draggable {
-	cursor: move;
-	pointer-events: auto;
-}
-
 .label {
 	fill: #555;
 	font-size: 12px;
@@ -82,11 +70,11 @@ svg {
 
 /* Info Panel */
 #info-panel {
-	position: absolute;
-	top: 50px;
-	right: 20px;
+	position: fixed;
+	bottom: 20px;
+	left: 20px;
 	width: 300px;
-	max-height: calc(100vh - 100px);
+	max-height: 50vh;
 	overflow-y: auto;
 	background: white;
 	border-radius: 8px;
@@ -99,6 +87,10 @@ svg {
 
 #info-panel.visible {
 	display: block;
+}
+
+#info-panel.draggable {
+	cursor: move;
 }
 
 #info-panel h3 {
@@ -122,6 +114,14 @@ svg {
 
 #info-panel .close-btn:hover {
 	color: #333;
+}
+
+#info-panel.draggable {
+	cursor: move;
+}
+
+#info-panel.dragging {
+	opacity: 0.8;
 }
 
 #info-panel .info-section {

@@ -124,6 +124,37 @@
             infoPanel.classed("visible", false);
         }
 
+        // Make info panel draggable
+        let isDragging = false;
+        let dragStartX, dragStartY, panelStartX, panelStartY;
+
+        infoPanel
+            .attr("draggable", true)
+            .on("mousedown", function(event) {
+                if (event.target.classList.contains("close-btn") || event.target.tagName === "A") return;
+                isDragging = true;
+                infoPanel.classed("dragging", true);
+                dragStartX = event.clientX;
+                dragStartY = event.clientY;
+                const transform = infoPanel.style("transform") || "translate(0, 0)";
+                const match = transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
+                panelStartX = match ? parseFloat(match[1]) : 0;
+                panelStartY = match ? parseFloat(match[2]) : 0;
+                event.preventDefault();
+            })
+            .on("mousemove", function(event) {
+                if (!isDragging) return;
+                const dx = event.clientX - dragStartX;
+                const dy = event.clientY - dragStartY;
+                infoPanel.style("transform", `translate(${panelStartX + dx}px, ${panelStartY + dy}px)`);
+            })
+            .on("mouseup mouseout", function() {
+                if (isDragging) {
+                    isDragging = false;
+                    infoPanel.classed("dragging", false);
+                }
+            });
+
         function showNodeInfo(d, allData) {
             const login = d.id;
             const group = d.group || 0;
