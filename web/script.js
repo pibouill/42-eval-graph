@@ -57,6 +57,9 @@ d3.json("./data.json").then(function(data) {
 				.duration(500)
 				.style("opacity", 0);
 			d3.select(this).select(".label").style("visibility", "hidden");
+		})
+		.on("click", function(event, d) {
+			window.open(`https://profile.intra.42.fr/users/${d.id}`, '_blank');
 		});
 
 	node.append("circle")
