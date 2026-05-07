@@ -15,6 +15,9 @@ const panelContent = d3.select("#panel-content");
 
 const color = d3.scaleOrdinal(d3.schemePastel2);
 
+let criticalThreshold = 5;
+let originalData = null;
+
 const simulation = d3.forceSimulation()
     .force("link", d3.forceLink().id(d => d.id).distance(50))
     .force("charge", d3.forceManyBody().strength(-100))
@@ -64,8 +67,6 @@ function showNodeInfo(d, allData) {
 	let evalsGiven = 0;
 	let evalsReceived = 0;
 	let connections = 0;
-	let firstEval = null;
-	let lastEval = null;
 	
 	allData.links.forEach(link => {
 		const source = link.source.id || link.source;
@@ -77,20 +78,16 @@ function showNodeInfo(d, allData) {
 			} else {
 				evalsReceived += link.value;
 			}
-			if (link.first_eval) {
-				if (!firstEval || link.first_eval < firstEval) firstEval = link.first_eval;
-			}
-			if (link.last_eval) {
-				if (!lastEval || link.last_eval > lastEval) lastEval = link.last_eval;
-			}
 		}
 	});
 	
-	panelTitle.text(login);
+	panelTitle.html(`
+		<div style="display: flex; align-items: center; gap: 12px;">
+			<div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 18px; border: 2px solid #667eea;">${login.charAt(0).toUpperCase()}</div>
+			<a href="https://profile.intra.42.fr/users/${login}" target="_blank">${login}</a>
+		</div>
+	`);
 	panelContent.html(`
-		<img class="avatar" src="https://cdn.intra.42.fr/images/simplon/paris/${login}.png" 
-		     onerror="this.src='https://profile.intra.42.fr/users/${login}/image'" 
-		     alt="${login}"/>
 		<div class="stats-grid">
 			<div class="stat-box">
 				<div class="stat-number">${evalsGiven}</div>
@@ -105,18 +102,6 @@ function showNodeInfo(d, allData) {
 				<div class="stat-label">Connections</div>
 			</div>
 		</div>
-		${firstEval ? `
-		<div class="info-section">
-			<div class="info-label">First Evaluation</div>
-			<div class="info-value">${firstEval}</div>
-		</div>
-		` : ''}
-		${lastEval ? `
-		<div class="info-section">
-			<div class="info-label">Last Evaluation</div>
-			<div class="info-value">${lastEval}</div>
-		</div>
-		` : ''}
 		<div class="info-section">
 			<div class="info-value">
 				<a href="https://profile.intra.42.fr/users/${login}" target="_blank">
@@ -132,8 +117,6 @@ function showLinkInfo(d) {
 	const source = d.source.id || d.source;
 	const target = d.target.id || d.target;
 	const value = d.value;
-	const firstEval = d.first_eval || 'N/A';
-	const lastEval = d.last_eval || 'N/A';
 	
 	panelTitle.text("Evaluation Link");
 	panelContent.html(`
@@ -155,18 +138,6 @@ function showLinkInfo(d) {
 				<div class="stat-label">Evaluations</div>
 			</div>
 		</div>
-		${firstEval !== 'N/A' ? `
-		<div class="info-section" style="margin-top: 15px;">
-			<div class="info-label">First Evaluation</div>
-			<div class="info-value">${firstEval}</div>
-		</div>
-		` : ''}
-		${lastEval !== 'N/A' ? `
-		<div class="info-section">
-			<div class="info-label">Last Evaluation</div>
-			<div class="info-value">${lastEval}</div>
-		</div>
-		` : ''}
 	`);
 	infoPanel.classed("visible", true);
 }
@@ -181,9 +152,19 @@ svg.on("click", function(event) {
 // Make closeInfoPanel available globally
 window.closeInfoPanel = closeInfoPanel;
 
-d3.json("./data.json").then(function(data) {
+function updateGraph(data) {
+	container.selectAll("*").remove();
+	simulation.stop();
+	simulation.nodes([]);
+	simulation.force("link", null);
+	
+	// Clear any existing tick listener
+	simulation.on("tick", null);
+
+	const threshold = criticalThreshold || 5;
+
     // Filter the links and nodes
-    const filteredLinks = data.links.filter(d => d.value > 5);
+    const filteredLinks = data.links.filter(d => d.value > threshold);
 
     // Get a unique set of node IDs from the filtered links
     const filteredNodeIds = new Set();
@@ -195,13 +176,30 @@ d3.json("./data.json").then(function(data) {
     // Filter the nodes to only include those in filteredNodeIds
     const filteredNodes = data.nodes.filter(node => filteredNodeIds.has(node.id));
 
-    // Define a color scale for the links based on their value
+    if (filteredLinks.length === 0 || filteredNodes.length === 0) {
+        container.append("text")
+            .attr("x", width / 2)
+            .attr("y", height / 2)
+            .attr("text-anchor", "middle")
+            .attr("fill", "#888")
+            .attr("font-size", "16px")
+            .text(`No evaluations above threshold ${threshold}`);
+        simulation.nodes([]);
+        return;
+    }
+
+    filteredNodes.forEach(d => {
+        d.x = width / 2 + (Math.random() - 0.5) * 50;
+        d.y = height / 2 + (Math.random() - 0.5) * 50;
+    });
+
+    const maxLinkValue = d3.max(filteredLinks, d => d.value) || threshold;
     const colorScale = d3.scaleLinear()
-        .domain([5, d3.max(filteredLinks, d => d.value)]) // From 5 to the max value
-        .range(["#ffcccc", "#ff0000"]); // Light red to intense red
+        .domain([threshold, maxLinkValue])
+        .range(["#ffcccc", "#ff0000"]);
 
 	const opacityScale = d3.scaleLinear()
-		.domain([5, d3.max(filteredLinks, d => d.value)])
+		.domain([threshold, maxLinkValue])
 		.range([0.1, 1]);
 
     const link = container.append("g")
@@ -211,7 +209,7 @@ d3.json("./data.json").then(function(data) {
         .enter().append("line")
         .attr("class", (d) => `link`)
         .attr("stroke-width", d => Math.sqrt(d.value))
-        .attr("stroke", d => colorScale(d.value))
+        .attr("stroke", "#ff4444")
 		.attr("stroke-opacity", d => opacityScale(d.value))
         .on("mouseover", function(event, d) {
             tooltip.transition()
@@ -276,8 +274,10 @@ d3.json("./data.json").then(function(data) {
         .nodes(filteredNodes)
         .on("tick", ticked);
 
-    simulation.force("link")
-        .links(filteredLinks);
+    simulation.force("link", d3.forceLink().id(d => d.id).distance(50));
+    simulation.force("link").links(filteredLinks);
+
+    simulation.alpha(1).restart();
 
     function ticked() {
         link
@@ -310,20 +310,18 @@ d3.json("./data.json").then(function(data) {
     // Function to filter and highlight nodes and links
     function filterNodes() {
         const isChecked = d3.select("#filterCheckbox").property("checked");
+        const th = getCriticalThreshold();
 
         if (isChecked) {
-            // Hide nodes without any link with value > 5
             node.style("opacity", function(d) {
                 const hasHighValueLink = filteredLinks.some(link =>
-                    (link.source.id === d.id || link.target.id === d.id) && link.value > 5
+                    (link.source.id === d.id || link.target.id === d.id) && link.value > th
                 );
                 return hasHighValueLink ? 1 : 0;
             });
 
-            // Hide links with value <= 5
-            link.style("opacity", d => d.value > 5 ? 1 : 0);
+            link.style("opacity", d => d.value > th ? 1 : 0);
         } else {
-            // Show all nodes and links
             node.style("opacity", 1);
             link.style("opacity", 1);
         }
@@ -362,7 +360,38 @@ d3.json("./data.json").then(function(data) {
             searchNode();
         }
     });
-});
+}
+
+function getCriticalThreshold() {
+	const input = document.getElementById("criticalValue");
+	return input ? parseInt(input.value) || 5 : 5;
+}
+
+function reloadData() {
+	criticalThreshold = getCriticalThreshold();
+	if (originalData) {
+		// Deep copy to avoid D3 modifying original data
+		const freshData = JSON.parse(JSON.stringify(originalData));
+		updateGraph(freshData);
+	}
+}
+
+window.reloadData = reloadData;
+
+d3.json("./data.json")
+	.then(function(data) {
+		originalData = JSON.parse(JSON.stringify(data));
+		updateGraph(data);
+	})
+	.catch(err => {
+		console.error("Failed to load data:", err);
+		container.append("text")
+			.attr("x", width / 2)
+			.attr("y", height / 2)
+			.attr("text-anchor", "middle")
+			.attr("fill", "red")
+			.text("Failed to load data. Check console for errors.");
+	});
 
 // Apply zoom and pan behavior
 svg.call(d3.zoom()
@@ -381,4 +410,3 @@ window.addEventListener('resize', function() {
     simulation.force("center", d3.forceCenter(window.innerWidth / 2, window.innerHeight / 2));
     simulation.alpha(1).restart();
 });
-

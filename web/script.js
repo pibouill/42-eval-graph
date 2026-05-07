@@ -15,6 +15,9 @@ const panelContent = d3.select("#panel-content");
 
 const color = d3.scaleOrdinal(d3.schemePastel2);
 
+let criticalThreshold = 5;
+let originalData = null;
+
 const simulation = d3.forceSimulation()
 	.force("link", d3.forceLink().id(d => d.id))
 	.force("charge", d3.forceManyBody().strength(-300))
@@ -64,8 +67,6 @@ function showNodeInfo(d, allData) {
 	let evalsGiven = 0;
 	let evalsReceived = 0;
 	let connections = 0;
-	let firstEval = null;
-	let lastEval = null;
 	
 	allData.links.forEach(link => {
 		const source = link.source.id || link.source;
@@ -77,21 +78,16 @@ function showNodeInfo(d, allData) {
 			} else {
 				evalsReceived += link.value;
 			}
-			// Track dates
-			if (link.first_eval) {
-				if (!firstEval || link.first_eval < firstEval) firstEval = link.first_eval;
-			}
-			if (link.last_eval) {
-				if (!lastEval || link.last_eval > lastEval) lastEval = link.last_eval;
-			}
 		}
 	});
 	
-	panelTitle.text(login);
+	panelTitle.html(`
+		<div style="display: flex; align-items: center; gap: 12px;">
+			<div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 18px; border: 2px solid #667eea;">${login.charAt(0).toUpperCase()}</div>
+			<a href="https://profile.intra.42.fr/users/${login}" target="_blank">${login}</a>
+		</div>
+	`);
 	panelContent.html(`
-		<img class="avatar" src="https://cdn.intra.42.fr/images/simplon/paris/${login}.png" 
-		     onerror="this.src='https://profile.intra.42.fr/users/${login}/image'" 
-		     alt="${login}"/>
 		<div class="stats-grid">
 			<div class="stat-box">
 				<div class="stat-number">${evalsGiven}</div>
@@ -106,18 +102,6 @@ function showNodeInfo(d, allData) {
 				<div class="stat-label">Connections</div>
 			</div>
 		</div>
-		${firstEval ? `
-		<div class="info-section">
-			<div class="info-label">First Evaluation</div>
-			<div class="info-value">${firstEval}</div>
-		</div>
-		` : ''}
-		${lastEval ? `
-		<div class="info-section">
-			<div class="info-label">Last Evaluation</div>
-			<div class="info-value">${lastEval}</div>
-		</div>
-		` : ''}
 		<div class="info-section">
 			<div class="info-value">
 				<a href="https://profile.intra.42.fr/users/${login}" target="_blank">
@@ -133,8 +117,6 @@ function showLinkInfo(d) {
 	const source = d.source.id || d.source;
 	const target = d.target.id || d.target;
 	const value = d.value;
-	const firstEval = d.first_eval || 'N/A';
-	const lastEval = d.last_eval || 'N/A';
 	
 	panelTitle.text("Evaluation Link");
 	panelContent.html(`
@@ -156,18 +138,6 @@ function showLinkInfo(d) {
 				<div class="stat-label">Evaluations</div>
 			</div>
 		</div>
-		${firstEval !== 'N/A' ? `
-		<div class="info-section" style="margin-top: 15px;">
-			<div class="info-label">First Evaluation</div>
-			<div class="info-value">${firstEval}</div>
-		</div>
-		` : ''}
-		${lastEval !== 'N/A' ? `
-		<div class="info-section">
-			<div class="info-label">Last Evaluation</div>
-			<div class="info-value">${lastEval}</div>
-		</div>
-		` : ''}
 	`);
 	infoPanel.classed("visible", true);
 }
@@ -182,13 +152,22 @@ svg.on("click", function(event) {
 // Make closeInfoPanel available globally
 window.closeInfoPanel = closeInfoPanel;
 
-d3.json("./data.json").then(function(data) {
+function updateGraph(data) {
+	if (!data || !data.links) {
+		console.error("Invalid data structure: 'links' property is missing", data);
+		return;
+	}
+	container.selectAll("*").remove();
+	simulation.nodes([]);
+
+	const threshold = getCriticalThreshold();
+
 	const link = container.append("g")
 		.attr("class", "links")
 		.selectAll("line")
 		.data(data.links)
 		.enter().append("line")
-		.attr("class", (d) => `link ${d.value > 5 ? "alert" : "ok"}`)
+		.attr("class", (d) => `link ${d.value > threshold ? "alert" : "ok"}`)
 		.attr("stroke-width", d => Math.sqrt(d.value))
 		.on("mouseover", function(event, d) {
 			tooltip.transition()
@@ -238,12 +217,6 @@ d3.json("./data.json").then(function(data) {
 		.attr("r", 5)
 		.attr("fill", d => color(d.group));
 
-	// node.append("text")
-	// 	.attr("class", "label")
-	// 	.attr("x", 8)
-	// 	.attr("y", 3)
-	// 	.text(d => d.id);
-
 	node.call(d3.drag()
 		.on("start", dragstarted)
 		.on("drag", dragged)
@@ -285,62 +258,87 @@ d3.json("./data.json").then(function(data) {
 	}
 
 	function filterNodes() {
-	const isChecked = d3.select("#filterCheckbox").property("checked");
+		const isChecked = d3.select("#filterCheckbox").property("checked");
+		const threshold = getCriticalThreshold();
 
-	if (isChecked) {
-		// Hide nodes without any link with value > 5
-		node.style("opacity", function(d) {
-			const hasHighValueLink = data.links.some(link =>
-				(link.source.id === d.id || link.target.id === d.id) && link.value > 5
-			);
-			return hasHighValueLink ? 1 : 0;
-		});
+		if (isChecked) {
+			node.style("opacity", function(d) {
+				const hasHighValueLink = data.links.some(link =>
+					(link.source.id === d.id || link.target.id === d.id) && link.value > threshold
+				);
+				return hasHighValueLink ? 1 : 0;
+			});
 
-		// Hide links with value <= 5
-		link.style("opacity", d => d.value > 5 ? 1 : 0);
-	} else {
-		// Show all nodes and links
-		node.style("opacity", 1);
-		link.style("opacity", 1);
+			link.style("opacity", d => d.value > threshold ? 1 : 0);
+		} else {
+			node.style("opacity", 1);
+			link.style("opacity", 1);
+		}
 	}
-}
 
 	d3.select("#filterCheckbox").on("change", filterNodes);
 
 	function searchNode() {
-	const searchValue = d3.select("#searchBox").property("value").toLowerCase();
-	const foundNode = data.nodes.find(node => node.id.toLowerCase() === searchValue);
+		const searchValue = d3.select("#searchBox").property("value").toLowerCase();
+		const foundNode = data.nodes.find(node => node.id.toLowerCase() === searchValue);
 
-	if (foundNode) {
-		node.select("circle")
-			.attr("r", 5) // Reset all node sizes
-			.attr("fill", d => color(d.group)); // Reset all node colors
+		if (foundNode) {
+			node.select("circle")
+				.attr("r", 5)
+				.attr("fill", d => color(d.group));
 
-		// Highlight the found node
-		const highlightedNode = d3.select(node.nodes().find(n => n.__data__.id === foundNode.id))
-								.select("circle")
-								.attr("r", 10) // Increase the size
-								.attr("fill", "orange"); // Change color to orange
+			const highlightedNode = d3.select(node.nodes().find(n => n.__data__.id === foundNode.id))
+									.select("circle")
+									.attr("r", 10)
+									.attr("fill", "orange");
 
-		// Zoom into the found node
-		const scale = 2;
-		const translate = [width / 2 - scale * foundNode.x, height / 2 - scale * foundNode.y];
-		container.transition()
-			.duration(750)
-			.attr("transform", `translate(${translate})scale(${scale})`);
-	} else {
-		alert("Student not found");
+			const scale = 2;
+			const translate = [width / 2 - scale * foundNode.x, height / 2 - scale * foundNode.y];
+			container.transition()
+				.duration(750)
+				.attr("transform", `translate(${translate})scale(${scale})`);
+		} else {
+			alert("Student not found");
+		}
+	}
+
+	d3.select("#searchBox").on("keyup", function(event) {
+		if (event.key === "Enter") {
+			searchNode();
+		}
+	});
+}
+
+function getCriticalThreshold() {
+	const input = document.getElementById("criticalValue");
+	return input ? parseInt(input.value) || 5 : 5;
+}
+
+function reloadData() {
+	criticalThreshold = getCriticalThreshold();
+	if (originalData) {
+		const freshData = JSON.parse(JSON.stringify(originalData));
+		updateGraph(freshData);
 	}
 }
 
-// Add event listener to the search box
-d3.select("#searchBox").on("keyup", function(event) {
-	if (event.key === "Enter") {
-		searchNode();
-	}
-});
+window.reloadData = reloadData;
 
-});
+	d3.json("./data.json")
+		.then(function(data) {
+			if (!data) throw new Error("JSON file is empty"); 
+			originalData = JSON.parse(JSON.stringify(data));
+			updateGraph(data);
+		})
+	.catch(err => {
+		console.error("Failed to load data:", err);
+		container.append("text")
+			.attr("x", width / 2)
+			.attr("y", height / 2)
+			.attr("text-anchor", "middle")
+			.attr("fill", "red")
+			.text("Failed to load data. Check console for errors.");
+	});
 
 // Apply zoom and pan behavior
 svg.call(d3.zoom()
