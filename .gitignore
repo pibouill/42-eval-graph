@@ -1,5 +1,6 @@
 web/*.json
 config.yml
+.env
 
 __pycache__/
 *.pyc
