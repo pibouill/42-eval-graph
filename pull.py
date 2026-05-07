@@ -3,21 +3,61 @@
 Fetch evaluation data from 42 intra API.
 
 Usage:
-    python pull.py                          # Auto-detect current semester
+    python pull.py                          # Use dates from config.yml (default)
     python pull.py --from 2024-09-01      # Specific start date
     python pull.py --from 2024-09-01 --to 2024-12-15  # Specific range
     python pull.py --cohort 2024-09-01     # By cohort start date
-    python pull.py --config                # Use config.yml dates
     python pull.py --sample               # Generate sample data (no API)
 """
 
 import argparse
 import json
+import time
+import signal
 from datetime import datetime, timedelta
 from collections import defaultdict
 import sys
 import os
 import traceback
+import threading
+
+# Handle Ctrl+C - exit immediately without cleanup
+def signal_handler(sig, frame):
+    print(f"\n{Colors.YELLOW}Stopped{Colors.ENDC}")
+    os._exit(1)
+
+signal.signal(signal.SIGINT, signal_handler)
+
+# Colors for fancy output
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    DIM = '\033[2m'
+
+def print_header(text):
+    print(f"\n{Colors.HEADER}{Colors.BOLD}═══ {text} {Colors.ENDC}")
+
+def print_success(text):
+    print(f"{Colors.GREEN}✓ {text}{Colors.ENDC}")
+
+def print_error(text):
+    print(f"{Colors.RED}✗ {text}{Colors.ENDC}")
+
+def print_warning(text):
+    print(f"{Colors.YELLOW}⚠ {text}{Colors.ENDC}")
+
+def print_info(text):
+    print(f"{Colors.BLUE}• {text}{Colors.ENDC}")
+
+def print_step(num, total, text):
+    print(f"{Colors.CYAN}[{num}/{total}]{Colors.ENDC} {text}")
 
 # Add current directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -33,15 +73,19 @@ try:
 except ImportError:
     MISSING_DEPS.append("python-louvain")
 try:
-    from intra import ic
+    from tqdm import tqdm
 except ImportError:
-    MISSING_DEPS.append("intra (local module)")
+    tqdm = None
+try:
+    from intra import ic
+except ImportError as e:
+    MISSING_DEPS.append(f"intra (local module): {e}")
 
 if MISSING_DEPS:
-    print("Error: Missing required dependencies:")
+    print(f"\n{Colors.RED}{Colors.BOLD}Error: Missing required dependencies:{Colors.ENDC}")
     for dep in MISSING_DEPS:
-        print(f"  - {dep}")
-    print("\nInstall them with: pip install -r requirements.txt")
+        print(f"  {Colors.RED}•{Colors.ENDC} {dep}")
+    print(f"\n{Colors.CYAN}Install them with: {Colors.BOLD}pip install -r requirements.txt{Colors.ENDC}\n")
     sys.exit(1)
 
 
@@ -53,8 +97,8 @@ def validate_date(date_str, name="date"):
         datetime.strptime(date_str, "%Y-%m-%d")
         return date_str
     except ValueError:
-        print(f"Error: Invalid {name} format: {date_str}")
-        print(f"Expected format: YYYY-MM-DD (e.g., 2024-09-01)")
+        print_error(f"Invalid {name} format: {date_str}")
+        print_info(f"Expected format: YYYY-MM-DD (e.g., 2024-09-01)")
         return None
 
 
@@ -72,14 +116,14 @@ def check_api_credentials():
                     secret = config['intra'].get('secret', '')
                     if client and secret:
                         return True
-            except Exception:
-                pass
+            except Exception as e:
+                print_warning(f"Could not read {config_path}: {e}")
     
-    print("Error: API credentials not found or invalid in config.yml")
-    print("Please add your 42 Intra API credentials:")
-    print("  intra:")
-    print("    client: 'your-client-id'")
-    print("    secret: 'your-secret-key'")
+    print_error("API credentials not found or invalid in config.yml")
+    print(f"\n{Colors.CYAN}To fix:{Colors.ENDC}")
+    print(f"  1. Copy config.sample.yml to config.yml")
+    print(f"  2. Edit config.yml with your 42 API credentials")
+    print(f"\n{Colors.DIM}Get credentials from: https://profile.intra.42.fr/oauth/applications{Colors.ENDC}")
     return False
 
 
@@ -97,9 +141,9 @@ def get_date_range(from_date=None, to_date=None, cohort_date=None, use_config=Fa
                         parts = date_range.replace(' ', '').split(',')
                         return parts[0], parts[1] if len(parts) > 1 else None
         except FileNotFoundError:
-            print("Warning: config.yml not found, falling back to auto-detection")
+            pass
         except Exception as e:
-            print(f"Warning: Could not read config.yml - {e}")
+            print_warning(f"Could not read config.yml: {e}")
 
     if cohort_date:
         return cohort_date, None
@@ -112,10 +156,9 @@ def get_date_range(from_date=None, to_date=None, cohort_date=None, use_config=Fa
     year = now.year
     month = now.month
 
-    # Detect school year boundary (September)
-    if month >= 9:  # Fall semester
+    if month >= 9:
         start = f"{year}-09-01"
-    elif month >= 1:  # Spring semester
+    elif month >= 1:
         start = f"{year}-01-01"
     else:
         start = f"{year}-09-01"
@@ -125,26 +168,23 @@ def get_date_range(from_date=None, to_date=None, cohort_date=None, use_config=Fa
 
 def fetch_evaluations(from_date, to_date=None, cohort_date=None, campus_id=56, cursus_id=21):
     """Fetch evaluations from 42 API."""
-    # Build proper date range (must be comma-separated)
     if to_date:
         date_range = f"{from_date},{to_date}"
     elif cohort_date:
-        # Cohort fetches users who started on that date
-        print(f"Fetching users who started on {cohort_date}...")
+        print_info(f"Fetching users who started on {cohort_date}...")
         users = fetch_cohort_users(cohort_date, campus_id, cursus_id)
         if not users:
-            print("No users found for cohort date")
+            print_error("No users found for cohort date")
             return []
 
-        print(f"Found {len(users)} users. Fetching evaluations...")
+        print_success(f"Found {len(users)} users")
+        print_info("Fetching evaluations...")
         from_date_obj = datetime.strptime(cohort_date, "%Y-%m-%d")
         next_day = from_date_obj + timedelta(days=1)
         date_range = f"{cohort_date},{next_day.strftime('%Y-%m-%d')}"
     else:
-        # No end date - use today as end
         today = datetime.now().strftime("%Y-%m-%d")
         date_range = f"{from_date},{today}"
-        print(f"Using date range: {date_range}")
 
     params = {
         'filter[campus_id]': campus_id,
@@ -153,20 +193,53 @@ def fetch_evaluations(from_date, to_date=None, cohort_date=None, campus_id=56, c
         'sort': 'created_at'
     }
 
-    print(f"Fetching evaluations for range: {date_range}...")
+    print_info(f"Fetching evaluations for range: {date_range}...")
+
+    # Get total count
     try:
-        res = ic.pages_threaded('scale_teams', params=params)
+        query_string = f"page=1&per_page=1&filter[campus_id]={campus_id}&filter[cursus_id]={cursus_id}&range[created_at]={date_range}&sort=created_at"
+        initial_response = ic.get(f"scale_teams?{query_string}")
+        if initial_response and initial_response.status_code == 200:
+            total_count = int(initial_response.headers.get('X-Total', 0))
+    except:
+        total_count = 0
+
+    start_time = time.time()
+    pages_needed = (total_count + 99) // 100
+
+    try:
+        if tqdm and pages_needed > 1:
+            pbar = tqdm(
+                total=pages_needed,
+                desc=f"{Colors.CYAN}Fetching{Colors.ENDC}",
+                bar_format="{l_bar}{bar}| {n}/{total} [{elapsed}<{remaining}]"
+            )
+
+            page_count = [0]
+            def progress_callback(completed):
+                delta = completed - page_count[0]
+                if delta > 0:
+                    pbar.update(delta)
+                    page_count[0] = completed
+
+            res = ic.pages_threaded('scale_teams', params=params, progress_callback=progress_callback)
+            pbar.close()
+        else:
+            res = ic.pages_threaded('scale_teams', params=params)
+
+        elapsed = time.time() - start_time
+        print_success(f"{len(res):,} evaluations in {elapsed:.1f}s")
         return res
     except Exception as e:
         error_msg = str(e)
         if '401' in error_msg or 'Unauthorized' in error_msg:
-            print("Error: Invalid API credentials")
-            print("Check your client/secret in config.yml")
+            print_error("Invalid API credentials")
+            print_info("Check your client/secret in config.yml")
         elif '403' in error_msg or 'Forbidden' in error_msg:
-            print("Error: API access denied")
-            print("Check your credentials have the right scopes")
+            print_error("API access denied")
+            print_info("Check your credentials have the right scopes")
         else:
-            print(f"Error fetching from API: {error_msg}")
+            print_error(f"Failed to fetch from API: {error_msg}")
         return []
 
 
@@ -185,7 +258,7 @@ def fetch_cohort_users(cohort_date, campus_id, cursus_id):
 
         return [str(cu['user']['id']) for cu in cursus_users]
     except Exception as e:
-        print(f"Error fetching cohort users: {e}")
+        print_error(f"Failed to fetch cohort users: {e}")
         return []
 
 
@@ -197,6 +270,8 @@ def process(res, include_dates=True):
     nodes = set()
     links = defaultdict(lambda: {'count': 0, 'first_eval': None, 'last_eval': None})
 
+    print_info(f"Processing {len(res)} evaluation entries...")
+    
     for entry in res:
         try:
             corrector = entry['corrector']['login']
@@ -217,14 +292,17 @@ def process(res, include_dates=True):
                     if not links[key]['last_eval'] or created_at > links[key]['last_eval']:
                         links[key]['last_eval'] = created_at
         except KeyError as e:
-            print(f"Warning: Skipping malformed entry: {e}")
             continue
 
     if not nodes:
-        print("Warning: No valid nodes found in data")
+        print_warning("No valid nodes found in data")
         return {"nodes": [], "links": []}
 
+    print_success(f"Found {len(nodes)} unique students")
+    print_info(f"Found {len(links)} evaluation links")
+
     # Perform clustering
+    print_info("Running clustering algorithm...")
     try:
         G = nx.Graph()
         G.add_nodes_from(nodes)
@@ -234,8 +312,10 @@ def process(res, include_dates=True):
         ])
 
         partition = community_louvain.best_partition(G)
+        num_clusters = len(set(partition.values()))
+        print_success(f"Identified {num_clusters} clusters")
     except Exception as e:
-        print(f"Warning: Clustering failed - {e}")
+        print_warning(f"Clustering failed: {e}")
         partition = {node: 0 for node in nodes}
 
     # Build output data
@@ -263,26 +343,26 @@ def process(res, include_dates=True):
 def write(data, filename='web/data.json'):
     """Write data to JSON file."""
     if not data:
-        print(f"Error: No data to write to {filename}")
+        print_error(f"No data to write to {filename}")
         return False
     
     try:
-        # Ensure directory exists
         dirname = os.path.dirname(filename)
         if dirname:
             os.makedirs(dirname, exist_ok=True)
         
         with open(filename, 'w') as f:
             json.dump(data, f, indent=4)
-        print(f"Written to {filename}")
+        print_success(f"Written to {filename}")
         return True
     except Exception as e:
-        print(f"Error writing to {filename}: {e}")
+        print_error(f"Failed to write to {filename}: {e}")
         return False
 
 
 def generate_sample():
     """Generate sample data for testing."""
+    print_info("Generating sample data...")
     nodes = [{"id": f"user{i}", "group": i % 3} for i in range(1, 21)]
     links = [
         {"source": "user1", "target": "user2", "value": 5, "first_eval": "2024-09-01", "last_eval": "2024-12-15"},
@@ -299,28 +379,26 @@ def generate_sample():
             "first_eval": f"2024-{9+(i%4):02d}-01",
             "last_eval": f"2025-{1+(i%3):02d}-15"
         })
+    print_success("Sample data generated!")
     return {"nodes": nodes, "links": links}
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Fetch evaluation data from 42 intra API',
+        description=f'{Colors.BOLD}42 Eval Graph{Colors.ENDC} - Fetch peer evaluation data from 42 Intra',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-    python pull.py                          Auto-detect current semester
-    python pull.py --from 2024-09-01        Fetch from specific date
-    python pull.py --from 2024-09-01 --to 2024-12-15  Date range
-    python pull.py --cohort 2024-09-01      Users who started on date
-    python pull.py --config                Use dates from config.yml
-    python pull.py --sample               Generate sample data
+        epilog=f"""
+{Colors.CYAN}Examples:{Colors.ENDC}
+  {Colors.GREEN}python pull.py{Colors.ENDC}                     Use dates from config.yml
+  {Colors.GREEN}python pull.py --from 2024-09-01{Colors.ENDC}  Fetch from specific date
+  {Colors.GREEN}python pull.py --cohort 2024-09-01{Colors.ENDC} Users who started on date
+  {Colors.GREEN}python pull.py --sample{Colors.ENDC}          Generate sample data
         """
     )
 
     parser.add_argument('--from', dest='from_date', help='Start date (YYYY-MM-DD)')
     parser.add_argument('--to', dest='to_date', help='End date (YYYY-MM-DD)')
     parser.add_argument('--cohort', dest='cohort_date', help='Cohort start date (YYYY-MM-DD)')
-    parser.add_argument('--config', action='store_true', help='Use date_range from config.yml')
     parser.add_argument('--sample', action='store_true', help='Generate sample data (no API)')
     parser.add_argument('--force', '-f', action='store_true', help='Force refresh (ignore cache)')
 
@@ -329,18 +407,22 @@ Examples:
 
     args = parser.parse_args()
 
+    # Print banner
+    print(f"""
+{Colors.HEADER}{Colors.BOLD}42 EVAL GRAPH{Colors.ENDC}
+{Colors.DIM}Peer Evaluations Network Generator{Colors.ENDC}
+    """)
+
     # Check for existing data (cache)
     data_file = 'web/data.json'
     if os.path.exists(data_file) and not args.force:
-        # Get file modification time
         mtime = os.path.getmtime(data_file)
-        import time as time_module
-        age_hours = (time_module.time() - mtime) / 3600
+        age_hours = (time.time() - mtime) / 3600
         
         if age_hours < 24:
-            print(f"Found existing data.json ({age_hours:.1f} hours old)")
-            print("Use --force to refresh, or delete data.json manually")
-            print("Exiting...")
+            print_info(f"Found existing data.json ({age_hours:.1f} hours old)")
+            print_info("Use --force to refresh, or delete data.json manually")
+            print(f"\n{Colors.DIM}Exiting...{Colors.ENDC}\n")
             sys.exit(0)
 
     # Validate date formats
@@ -362,36 +444,33 @@ Examples:
             sys.exit(1)
         args.cohort_date = valid_cohort
 
-    # Check --to requires --from
+    # --to requires --from
     if args.to_date and not args.from_date:
-        print("Error: --to requires --from to be specified")
+        print_error("--to requires --from to be specified")
         sys.exit(1)
 
+    # Sample mode
     if args.sample:
-        print("Generating sample data...")
         data = generate_sample()
         if write(data, 'web/data.json'):
-            print("Sample data generated!")
+            print(f"\n{Colors.GREEN}{Colors.BOLD}Done!{Colors.ENDC}\n")
         return
 
-    # Check API credentials (skip for sample mode)
+    # Check API credentials
     if not check_api_credentials():
         sys.exit(1)
 
     from_date = args.from_date
     to_date = args.to_date
     cohort_date = args.cohort_date
-    use_config = args.config
 
-    if not any([from_date, to_date, cohort_date, use_config]):
-        # Auto-detect current semester
-        from_date, to_date = get_date_range()
-        print(f"Auto-detected date range: {from_date}")
-
-    if cohort_date:
-        print(f"Processing cohort: {cohort_date}")
+    if not any([from_date, to_date, cohort_date]):
+        from_date, to_date = get_date_range(use_config=True)
+        if from_date:
+            print_info(f"Using config date range: {from_date} → {to_date or 'today'}")
 
     # Fetch data
+    print_header("Fetching Data")
     try:
         res = fetch_evaluations(
             from_date=from_date,
@@ -400,45 +479,48 @@ Examples:
             campus_id=args.campus,
             cursus_id=args.cursus
         )
+    except KeyboardInterrupt:
+        print(f"\n{Colors.YELLOW}Interrupted by user{Colors.ENDC}")
+        sys.exit(130)
     except Exception as e:
-        print(f"Error during fetch: {e}")
-        traceback.print_exc()
+        print_error(f"Failed to fetch: {e}")
         sys.exit(1)
 
     if not res:
-        print("No evaluations found. This could mean:")
-        print("  - No evaluations in the specified date range")
-        print("  - Invalid campus/cursus IDs")
-        print("  - API rate limiting")
+        print_warning("No evaluations found. This could mean:")
+        print(f"  • No evaluations in the specified date range")
+        print(f"  • Invalid campus/cursus IDs")
+        print(f"  • API rate limiting")
+        print(f"\n{Colors.DIM}Try a different date range or check your credentials.{Colors.ENDC}\n")
         sys.exit(0)
 
-    print(f"Found {len(res)} evaluations")
+    print_success(f"Found {len(res)} evaluations")
 
     # Process data
-    print("Processing data...")
+    print_header("Processing Data")
     try:
         data = process(res, include_dates=True)
     except Exception as e:
-        print(f"Error processing data: {e}")
-        traceback.print_exc()
+        print_error(f"Failed to process data: {e}")
         sys.exit(1)
 
     if not data or not data.get('nodes'):
-        print("Error: No valid data after processing")
+        print_error("No valid data after processing")
         sys.exit(1)
 
     # Write to file
+    print_header("Saving Data")
     if not write(data, 'web/data.json'):
         sys.exit(1)
 
     # Also generate cluster data
-    print("Generating cluster data...")
+    print_header("Generating Clusters")
     try:
         process_and_save_clusters(data)
     except Exception as e:
-        print(f"Warning: Could not generate cluster data - {e}")
+        print_warning(f"Could not generate cluster data: {e}")
 
-    print("Done!")
+    print(f"\n{Colors.GREEN}{Colors.BOLD}✨ All done!{Colors.ENDC}\n")
 
 
 def process_and_save_clusters(data):
@@ -458,14 +540,13 @@ def process_and_save_clusters(data):
 
         partition = community_louvain.best_partition(G)
     except Exception as e:
-        print(f"Warning: Clustering failed - {e}")
+        print_warning(f"Clustering failed: {e}")
         return
 
     cluster_map = defaultdict(list)
     for node, cluster in partition.items():
         cluster_map[cluster].append(node)
 
-    # Save full data with clustering
     for cluster_id, cluster_nodes in cluster_map.items():
         cluster_nodes_data = [
             {"id": node, "group": partition[node]}
@@ -482,18 +563,19 @@ def process_and_save_clusters(data):
         with open(f'web/data_cluster_{cluster_id}.json', 'w') as f:
             json.dump(cluster_data, f, indent=4)
 
-    # Save cluster list
     with open('web/clusters.json', 'w') as f:
         json.dump(list(cluster_map.keys()), f, indent=4)
+    
+    print_success(f"Generated {len(cluster_map)} cluster files")
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\nInterrupted by user")
+        print(f"\n{Colors.YELLOW}Interrupted by user{Colors.ENDC}")
         sys.exit(130)
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print_error(f"Unexpected error: {e}")
         traceback.print_exc()
         sys.exit(1)
