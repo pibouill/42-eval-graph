@@ -82,11 +82,52 @@
 
     <div id='header'>Cluster Visualization</div>
 
-    <div style="margin-top: 50px; margin-left: 20px;">
-        <select id="clusterSelect">
+    <div id="controls">
+        <select id="clusterSelect" class="search-input">
             <option value="">Select a cluster</option>
         </select>
+        <span style="margin-left: 1em;">Critical:</span>
+        <input type="number" id="criticalValue" class="number-input" value="5" min="1">
+        <button class="action-btn" onclick="reloadData()">Reload</button>
     </div>
+
+    <div id="nav-links">
+        <a href='index.html' class="nav-link">All data</a>
+        <a href='critical.html' class="nav-link">Critical</a>
+        <a href='clusters.html' class="nav-link active">Clusters</a>
+    </div>
+
+    <button class="help-btn" onclick="toggleHelp()">?</button>
+
+    <div id="help-panel">
+        <button class="close-btn" onclick="toggleHelp()">&times;</button>
+        <h3>Help</h3>
+        <div class="help-section">
+            <div class="help-title">About this view</div>
+            <div class="help-text">Shows students organized by <strong>cluster</strong> (learning group). Use the dropdown to select a cluster and view its evaluation network.</div>
+        </div>
+        <div class="help-section">
+            <div class="help-title">Critical threshold</div>
+            <div class="help-text">Filters out evaluations below this value (default 5).</div>
+        </div>
+        <div class="help-section">
+            <div class="help-title">Controls</div>
+            <div class="help-text">
+                <strong>Dropdown:</strong> Select cluster to view<br>
+                <strong>Drag nodes:</strong> Reposition them<br>
+                <strong>Scroll/Pan:</strong> Zoom and navigate<br>
+                <strong>Click node:</strong> View student details<br>
+                <strong>Click link:</strong> View evaluation details
+            </div>
+        </div>
+    </div>
+
+    <script>
+    function toggleHelp() {
+        var panel = document.getElementById("help-panel");
+        panel.classList.toggle("visible");
+    }
+    </script>
 
     <div id="info-panel">
         <button class="close-btn" onclick="closeInfoPanel()">&times;</button>
@@ -124,37 +165,6 @@
             infoPanel.classed("visible", false);
         }
 
-        // Make info panel draggable
-        let isDragging = false;
-        let dragStartX, dragStartY, panelStartX, panelStartY;
-
-        infoPanel
-            .attr("draggable", true)
-            .on("mousedown", function(event) {
-                if (event.target.classList.contains("close-btn") || event.target.tagName === "A") return;
-                isDragging = true;
-                infoPanel.classed("dragging", true);
-                dragStartX = event.clientX;
-                dragStartY = event.clientY;
-                const transform = infoPanel.style("transform") || "translate(0, 0)";
-                const match = transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/);
-                panelStartX = match ? parseFloat(match[1]) : 0;
-                panelStartY = match ? parseFloat(match[2]) : 0;
-                event.preventDefault();
-            })
-            .on("mousemove", function(event) {
-                if (!isDragging) return;
-                const dx = event.clientX - dragStartX;
-                const dy = event.clientY - dragStartY;
-                infoPanel.style("transform", `translate(${panelStartX + dx}px, ${panelStartY + dy}px)`);
-            })
-            .on("mouseup mouseout", function() {
-                if (isDragging) {
-                    isDragging = false;
-                    infoPanel.classed("dragging", false);
-                }
-            });
-
         function showNodeInfo(d, allData) {
             const login = d.id;
             const group = d.group || 0;
@@ -184,11 +194,13 @@
                 }
             });
             
-            panelTitle.text(login);
+            panelTitle.html(`
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 18px; border: 2px solid #667eea;">${login.charAt(0).toUpperCase()}</div>
+                    <a href="https://profile.intra.42.fr/users/${login}" target="_blank">${login}</a>
+                </div>
+            `);
             panelContent.html(`
-                <img class="avatar" src="https://cdn.intra.42.fr/images/simplon/paris/${login}.png" 
-                     onerror="this.src='https://profile.intra.42.fr/users/${login}/image'" 
-                     alt="${login}"/>
                 <div class="stats-grid">
                     <div class="stat-box">
                         <div class="stat-number">${evalsGiven}</div>
@@ -279,21 +291,23 @@
         // Make closeInfoPanel available globally
         window.closeInfoPanel = closeInfoPanel;
 
-        function loadCluster(cluster) {
+function loadCluster(cluster) {
             console.log(`Loading cluster: ${cluster}`);
-            d3.json(`data_cluster_${cluster}.json`).then(function(data) {
-                console.log(`Data loaded for cluster ${cluster}:`, data);
-                // Clear previous visualization
-                container.selectAll("*").remove();
-                simulation.nodes([]);
-                simulation.force("link").links([]);
+            const threshold = getCriticalThreshold();
+            d3.json(`data_cluster_${cluster}.json`)
+                .then(function(data) {
+                    console.log(`Data loaded for cluster ${cluster}:`, data);
+                    // Clear previous visualization
+                    container.selectAll("*").remove();
+                    simulation.nodes([]);
+                    simulation.force("link").links([]);
 
                 const link = container.append("g")
                     .attr("class", "links")
                     .selectAll("line")
                     .data(data.links)
                     .enter().append("line")
-                    .attr("class", (d) => `link ${d.value > 5 ? "alert" : "ok"}`)
+                    .attr("class", (d) => `link ${d.value > threshold ? "alert" : "ok"}`)
                     .attr("stroke-width", d => Math.sqrt(d.value))
                     .style("cursor", "pointer")
                     .on("click", function(event, d) {
@@ -375,14 +389,24 @@
         });
 
         // Load cluster options
-        d3.json("clusters.json").then(function(clusters) {
-            const select = d3.select("#clusterSelect");
-            clusters.forEach(cluster => {
-                select.append("option")
-                    .attr("value", cluster)
-                    .text(`Cluster ${cluster}`);
+        d3.json("clusters.json")
+            .then(function(clusters) {
+                const select = d3.select("#clusterSelect");
+                clusters.forEach(cluster => {
+                    select.append("option")
+                        .attr("value", cluster)
+                        .text(`Cluster ${cluster}`);
+                });
+            })
+            .catch(err => {
+                console.error("Failed to load clusters:", err);
+                container.append("text")
+                    .attr("x", width / 2)
+                    .attr("y", height / 2)
+                    .attr("text-anchor", "middle")
+                    .attr("fill", "red")
+                    .text("Failed to load clusters. Please check console for errors.");
             });
-        });
 
         // Apply zoom and pan behavior
         svg.call(d3.zoom()
@@ -401,7 +425,33 @@
                .attr('height', window.innerHeight);
             simulation.force("center", d3.forceCenter(window.innerWidth / 2, window.innerHeight / 2));
             simulation.alpha(1).restart();
+                })
+                .catch(err => {
+                    console.error(`Failed to load cluster ${cluster}:`, err);
+                    container.selectAll("*").remove();
+                    container.append("text")
+                        .attr("x", width / 2)
+                        .attr("y", height / 2)
+                        .attr("text-anchor", "middle")
+                        .attr("fill", "red")
+                        .text(`Failed to load cluster ${cluster}. Please check console for errors.`);
+                });
         });
+
+        function getCriticalThreshold() {
+            const input = document.getElementById("criticalValue");
+            return input ? parseInt(input.value) || 5 : 5;
+        }
+
+        function reloadData() {
+            const selectedCluster = document.getElementById("clusterSelect").value;
+            if (selectedCluster) {
+                loadCluster(selectedCluster);
+            }
+        }
+
+        window.closeInfoPanel = closeInfoPanel;
+        window.reloadData = reloadData;
     </script>
 </body>
 </html>

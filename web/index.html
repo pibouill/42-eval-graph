@@ -11,15 +11,56 @@
 
     <div id='header'>evaluation's network graph</div>
 
-    <div style="margin-top: 50px; margin-left: 20px;">
-        <input type="text" id="searchBox" placeholder="Search by login..." style="padding: 5px;">
+    <div id="controls">
+        <input type="text" id="searchBox" class="search-input" placeholder="Search by login...">
         <input type="checkbox" id="filterCheckbox">
-        <label for="filterCheckbox">Show only nodes alerting nodes</label>
+        <label for="filterCheckbox" class="nav-label">Show only alerting nodes</label>
+        <span style="margin-left: 1em;">Critical:</span>
+        <input type="number" id="criticalValue" class="number-input" value="5" min="1">
+        <button class="action-btn" onclick="reloadData()">Reload</button>
     </div>
 
-    <div style="margin-top: 10px; margin-left: 20px; display: flex; gap: 2em;">
-        <a href='index.html'>All data</a>  <a href='critical.html'>Critical</a> <a href='clusters.html'>Clusters</a>
+    <div id="nav-links">
+        <a href='index.html' class="nav-link active">All data</a>
+        <a href='critical.html' class="nav-link">Critical</a>
+        <a href='clusters.html' class="nav-link">Clusters</a>
     </div>
+
+    <button class="help-btn" onclick="toggleHelp()">?</button>
+
+    <div id="help-panel">
+        <button class="close-btn" onclick="toggleHelp()">&times;</button>
+        <h3>Help</h3>
+        <div class="help-section">
+            <div class="help-title">About this view</div>
+            <div class="help-text">Shows <strong>all</strong> peer evaluations as an interactive network graph. Each node is a student, each link is an evaluation connection.</div>
+        </div>
+        <div class="help-section">
+            <div class="help-title">Value</div>
+            <div class="help-text">The number on each link shows how many times Student A evaluated Student B.</div>
+        </div>
+        <div class="help-section">
+            <div class="help-title">Alerting nodes</div>
+            <div class="help-text">When enabled, hides nodes that don't have any links above the critical threshold.</div>
+        </div>
+        <div class="help-section">
+            <div class="help-title">Controls</div>
+            <div class="help-text">
+                <strong>Search:</strong> Find a student by login (press Enter)<br>
+                <strong>Drag nodes:</strong> Reposition them<br>
+                <strong>Scroll/Pan:</strong> Zoom and navigate<br>
+                <strong>Click node:</strong> View student details<br>
+                <strong>Click link:</strong> View evaluation details
+            </div>
+        </div>
+    </div>
+
+    <script>
+    function toggleHelp() {
+        var panel = document.getElementById("help-panel");
+        panel.classList.toggle("visible");
+    }
+    </script>
 
     <div id="info-panel">
         <button class="close-btn" onclick="closeInfoPanel()">&times;</button>
