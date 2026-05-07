@@ -45,12 +45,21 @@ cp config.sample.yml config.yml
 # Edit config.yml with your 42 API client/secret
 ```
 
+**Note:** config.yml is gitignored - your credentials are safe.
+
+### Get API Credentials
+
+1. Go to [42 Intra OAuth Applications](https://profile.intra.42.fr/oauth/applications)
+2. Create a new application
+3. Set redirect URI to `http://localhost`
+4. Copy the UID and secret to config.yml
+
 ## Usage
 
 ### Fetch Data
 
 ```bash
-# Auto-detect current semester (recommended)
+# Use dates from config.yml (default)
 python pull.py
 
 # Specific date range
@@ -59,11 +68,13 @@ python pull.py --from 2025-09-01 --to 2026-01-15
 # By cohort start date
 python pull.py --cohort 2025-09-01
 
-# Use dates from config.yml
-python pull.py --config
-
 # Generate sample data (no API needed)
 python pull.py --sample
+
+# Force refresh (ignore cache)
+python pull.py --force
+# or
+python pull.py -f
 ```
 
 ### Run Web Server
@@ -106,8 +117,8 @@ Click any node or link to see:
 | `--from` | Start date (YYYY-MM-DD) |
 | `--to` | End date (YYYY-MM-DD) |
 | `--cohort` | Fetch users who started on date |
-| `--config` | Use date_range from config.yml |
 | `--sample` | Generate sample data |
+| `--force`, `-f` | Force refresh (ignore cache) |
 | `--campus` | Campus ID (default: 56) |
 | `--cursus` | Cursus ID (default: 21) |
 
